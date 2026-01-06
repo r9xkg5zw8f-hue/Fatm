@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Farm RPG JS</title>
+<style>
+body{margin:0;overflow:hidden;background:#5aa;}
+canvas{display:block;}
+</style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<script>
+let canvas=document.getElementById("gameCanvas");
+let ctx=canvas.getContext("2d");
+let WIDTH=800, HEIGHT=600;
+canvas.width=WIDTH; canvas.height=HEIGHT;
+
+let gridSize=12, tileSize=50;
+let cameraX=0, cameraY=0;
+let player, farmPlots, farm, inventory;
+let gold, toolbar, selectedTool, selectedSeed;
+let cropList, cropsData;
+let shopOpen=false, selling=false, inventoryOpen=false, farmPlotShop=false, houseMenu=false;
+let seedNPC, sellNPC, plotNPC, house;
+let hoeLevel=0, waterLevel=0;
+let farmPlotPrice=1000;
+
+function setup(){
+    initGame();
+    canvas.addEventListener("touchstart", handleClick);
+    requestAnimationFrame(loop);
+}
+
+function initGame(){
+    player={x:6,y:6,px:6,py:6,tx:6,ty:6,speed:6};
+    cameraX=0; cameraY=0;
+    gold=10; selectedTool="hand"; selectedSeed="corn";
+
+    cropList=["corn","carrot","potato","tomato","eggplant","lettuce"];
+    cropsData={
+        corn:{time:6,color:"yellow",icon:"🌽"},
+        carrot:{time:5,color:"orange",icon:"🥕"},
+        potato:{time:7,color:"tan",icon:"🥔"},
+        tomato:{time:6,color:"red",icon:"🍅"},
+        eggplant:{time:8,color:"purple",icon:"🍆"},
+        lettuce:{time:4,color:"green",icon:"🥬"}
+    };
+    for(let i=0;i<cropList.length;i++){
+        let c=cropList[i];
+        if(i==0) cropsData[c].buyPrice=5;
+        else if(i>=cropList.length-3) cropsData[c].buyPrice=200+Math.floor(Math.random()*1000);
+        else cropsData[c].buyPrice=Math.floor(Math.random()*1000)+1;
+        cropsData[c].price=Math.floor(cropsData[c].buyPrice*0.75);
+    }
+
+    inventory={seeds:{},crops:{}};
+    cropList.forEach(c=>{inventory.seeds[c]=0; inventory.crops[c]=0;});
+
+    farmPlots=[{x:3,y:3,size:4,unlocked:true}];
+    farm=[];
+    for(let x=0;x<4;x++){farm[x]=[]; for(let y=0;y<4;y++){farm[x][y]={state:"empty",crop:null,timer:0,watered:false};}}
+
+    toolbar=["hand","hoe","seeds","watercan"];
+    seedNPC={x:10,y:3}; sellNPC={x:2,y:3}; plotNPC={x:10,y:10}; house={x:3,y:1};
+}
+
+function loop(){
+    update();
+    draw();
+    requestAnimationFrame(loop);
+}
+
+function update(){
+    // player movement
+    let dx=player.tx-player.px, dy=player.ty-player.py;
+    let dist=Math.sqrt(dx*dx+dy*dy);
+    if(dist>0.01){
+        let step=player.speed*0.016;
+        player.px+=dx*Math.min(step,dist);
+        player.py+=dy*Math.min(step,dist);
+    } else {player.px=player.tx; player.py=player.ty;}
+    // camera
+    cameraX=player.px*tileSize-WIDTH/2;
+    cameraY=player.py*tileSize-HEIGHT/2;
+    cameraX=Math.max(0,Math.min(cameraX,gridSize*tileSize-WIDTH));
+    cameraY=Math.max(0,Math.min(cameraY,gridSize*tileSize-HEIGHT));
+
+    // crop growth
+    let tNow=Date.now()/1000;
+    for(let x=0;x<4;x++){
+        for(let y=0;y<4;y++){
+            let t=farm[x][y];
+            if(t.state=="seed" && t.watered && tNow-t.timer>cropsData[t.crop].time){
+                t.state="grown";
+            }
+        }
+    }
+}
+
+function draw(){
+    ctx.clearRect(0,0,WIDTH,HEIGHT);
+    ctx.save(); ctx.translate(-cameraX,-cameraY);
+    drawWorld(); drawFarm(); drawNPCs(); drawHouse(); drawPlayer();
+    ctx.restore();
+    drawToolbar(); drawUI();
+    if(shopOpen) drawShop(); if(selling) drawSell(); if(farmPlotShop) drawFarmPlotShop(); if(inventoryOpen) drawInventory(); if(houseMenu) drawHouseMenu();
+}
+
+function drawWorld(){
+    for(let x=0;x<gridSize;x++){
+        for(let y=0;y<gridSize;y++){
+            ctx.fillStyle=(x==0||y==0||x==gridSize-1||y==gridSize-1)?"darkgreen":"green";
+            ctx.fillRect(x*tileSize,y*tileSize,tileSize,tileSize);
+        }
+    }
+}
+
+function drawFarm(){
+    for(let x=0;x<4;x++){
+        for(let y=0;y<4;y++){
+            let gx=x+3, gy=y+3;
+            let t=farm[x][y];
+            ctx.fillStyle=(t.state=="tilled")?"saddlebrown":"peru";
+            ctx.fillRect((gx-1)*tileSize,(gy-1)*tileSize,tileSize,tileSize);
+            ctx.strokeStyle="yellow"; ctx.lineWidth=2;
+            ctx.strokeRect((gx-1)*tileSize,(gy-1)*tileSize,tileSize,tileSize);
+            if(t.crop){
+                ctx.fillStyle=cropsData[t.crop].color;
+                ctx.beginPath(); ctx.arc((gx-0.5)*tileSize,(gy-0.5)*tileSize,16,0,2*Math.PI); ctx.fill();
+                if(t.watered && t.state!="grown"){
+                    ctx.fillStyle="rgba(0,150,255,0.5)";
+                    ctx.beginPath(); ctx.arc((gx-0.5)*tileSize,(gy-0.5)*tileSize,8,0,2*Math.PI); ctx.fill();
+                }
+            }
+        }
+    }
+}
+
+function drawPlayer(){
+    ctx.fillStyle="blue";
+    ctx.beginPath(); ctx.arc((player.px-0.5)*tileSize,(player.py-0.5)*tileSize,16,0,2*Math.PI); ctx.fill();
+    ctx.fillStyle="white";
+    ctx.beginPath(); ctx.arc((player.px-0.6)*tileSize,(player.py-0.45)*tileSize,3,0,2*Math.PI); ctx.fill();
+    ctx.beginPath(); ctx.arc((player.px-0.4)*tileSize,(player.py-0.45)*tileSize,3,0,2*Math.PI); ctx.fill();
+    ctx.strokeStyle="black"; ctx.beginPath();
+    ctx.moveTo((player.px-0.55)*tileSize,(player.py-0.55)*tileSize);
+    ctx.lineTo((player.px-0.45)*tileSize,(player.py-0.55)*tileSize); ctx.stroke();
+}
+
+function drawNPCs(){
+    function drawNPC(npc,color){
+        ctx.fillStyle=color;
+        ctx.beginPath(); ctx.arc((npc.x-0.5)*tileSize,(npc.y-0.5)*tileSize,16,0,2*Math.PI); ctx.fill();
+        ctx.fillStyle="white";
+        ctx.beginPath(); ctx.arc((npc.x-0.6)*tileSize,(npc.y-0.45)*tileSize,3,0,2*Math.PI); ctx.fill();
+        ctx.beginPath(); ctx.arc((npc.x-0.4)*tileSize,(npc.y-0.45)*tileSize,3,0,2*Math.PI); ctx.fill();
+        ctx.strokeStyle="black"; ctx.beginPath();
+        ctx.moveTo((npc.x-0.55)*tileSize,(npc.y-0.55)*tileSize);
+        ctx.lineTo((npc.x-0.45)*tileSize,(npc.y-0.55)*tileSize); ctx.stroke();
+    }
+    drawNPC(seedNPC,"purple"); drawNPC(sellNPC,"orange"); drawNPC(plotNPC,"cyan");
+}
+
+function drawHouse(){
+    ctx.fillStyle="brown";
+    ctx.fillRect((house.x-1)*tileSize,(house.y-1)*tileSize,tileSize,tileSize);
+    ctx.fillStyle="yellow"; ctx.fillRect((house.x-1)*tileSize+16,(house.y-1)*tileSize+16,18,18);
+    ctx.fillStyle="black";
+    ctx.beginPath(); ctx.arc((house.x-0.6)*tileSize,(house.y-0.45)*tileSize,3,0,2*Math.PI); ctx.fill();
+    ctx.beginPath(); ctx.arc((house.x-0.4)*tileSize,(house.y-0.45)*tileSize,3,0,2*Math.PI); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo((house.x-0.55)*tileSize,(house.y-0.55)*tileSize);
+    ctx.lineTo((house.x-0.45)*tileSize,(house.y-0.55)*tileSize); ctx.stroke();
+}
+
+function drawToolbar(){
+    ctx.font="16px Arial"; ctx.textAlign="center"; ctx.textBaseline="middle";
+    for(let i=0;i<toolbar.length;i++){
+        let tool=toolbar[i], x=20+i*100, y=20;
+        ctx.fillStyle=(selectedTool==tool)?"lime":"gray";
+        ctx.fillRect(x,y,80,30);
+        ctx.fillStyle="black"; ctx.fillText(tool,x+40,y+15);
+    }
+    ctx.fillStyle="yellow"; ctx.fillRect(WIDTH-100,20,80,30);
+    ctx.fillStyle="black"; ctx.fillText("INV",WIDTH-60,35);
+}
+
+function drawUI(){
+    ctx.fillStyle="white"; ctx.font="18px Arial";
+    ctx.fillText("Gold: "+gold,80,HEIGHT-40);
+    ctx.fillText("Hoe Lv:"+hoeLevel+" Water Lv:"+waterLevel,120,HEIGHT-70);
+    if(selectedTool=="seeds") ctx.fillText("Seed: "+selectedSeed,80,HEIGHT-100);
+    else ctx.fillText("Tool: "+selectedTool,80,HEIGHT-100);
+}
+
+// Handle mobile taps
+function handleClick(e){
+    let rect=canvas.getBoundingClientRect();
+    let touch=e.touches[0];
+    let mx=touch.clientX-rect.left, my=touch.clientY-rect.top;
+    let tx=Math.ceil((mx+cameraX)/tileSize), ty=Math.ceil((my+cameraY)/tileSize);
+    player.tx=tx; player.ty=ty;
+
+    // Interact with NPCs or house
+    if(Math.abs(tx-seedNPC.x)<=1 && Math.abs(ty-seedNPC.y)<=1){shopOpen=true; selling=false; farmPlotShop=false; houseMenu=false; inventoryOpen=false; return;}
+    if(Math.abs(tx-sellNPC.x)<=1 && Math.abs(ty-sellNPC.y)<=1){selling=true; shopOpen=false; farmPlotShop=false; houseMenu=false; inventoryOpen=false; return;}
+    if(Math.abs(tx-plotNPC.x)<=1 && Math.abs(ty-plotNPC.y)<=1){farmPlotShop=true; shopOpen=false; selling=false; houseMenu=false; inventoryOpen=false; return;}
+    if(Math.abs(tx-house.x)<=1 && Math.abs(ty-house.y)<=1){houseMenu=true; shopOpen=false; selling=false; farmPlotShop=false; inventoryOpen=false; return;}
+
+    // Farm plot interactions
+    farmPlots.forEach(plot=>{
+        let fx=tx-plot.x, fy=ty-plot.y;
+        if(fx>=0 && fx<4 && fy>=0 && fy<4){
+            let tile=farm[fx][fy];
+            if(selectedTool=="hoe"){tile.state="tilled";}
+            else if(selectedTool=="seeds" && tile.state=="tilled" && inventory.seeds[selectedSeed]>0){
+                tile.state="seed"; tile.crop=selectedSeed; tile.timer=Date.now()/1000; tile.watered=false;
+                inventory.seeds[selectedSeed]-=1;
+            } else if(selectedTool=="watercan" && tile.state=="seed"){tile.watered=true;}
+            else if(selectedTool=="hand" && tile.state=="grown" && tile.crop){
+                inventory.crops[tile.crop]+=1;
+                tile.state="empty"; tile.crop=null; tile.watered=false;
+            }
+        }
+    });
+}
+
+setup();
+</script>
+</body>
+</html>
